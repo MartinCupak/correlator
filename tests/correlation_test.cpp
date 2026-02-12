@@ -72,8 +72,12 @@ void test_correlation_with_xgpu_data(){
     ObservationInfo obsInfo {VCS_OBSERVATION_INFO};
     obsInfo.nTimesteps = 100; // xgpu processes 1/10th of the total 1hour VCS observation at a time.
     auto voltages = Voltages::from_memory((int8_t*) inputData, insize, obsInfo, 100);
+    #ifdef __GPU__
+    auto xcorr = cross_correlation(voltages);
+    xcorr.to_cpu();
+    #else
     auto xcorr = cross_correlation_cpu(voltages);
-    
+    #endif
     const std::complex<float>* a {reinterpret_cast<std::complex<float>*>(outputData)};
     const std::complex<float>* b {xcorr.data()};
     // xGPU does not compute the time average and does not average channels, so we need to scale back
@@ -188,7 +192,12 @@ void test_correlation_with_eda2_data(){
 
 void test_correlation_with_offline_correlator_data(){
     auto volt = Voltages::from_dat_file(dataRootDir + "/offline_correlator/1240826896_1240827191_ch146.dat", VCS_OBSERVATION_INFO, 1000);
+#ifdef __GPU__
+    auto v1 = cross_correlation(volt, 32);
+    v1.to_cpu();
+#else
     auto v1 = cross_correlation_cpu(volt, 32);
+#endif
     auto v2 = Visibilities::from_fits_file(dataRootDir + "/offline_correlator/1313388760_20110815061242_gpubox20_00.fits");
     
     if (!complex_vectors_equal(v1.data(), v2.data(), v1.size())){
