@@ -4,7 +4,7 @@ echo "Building the Blink correlator for CUDA..."
 
 [ -d build ] || mkdir build
 cd build
-cmake .. -DBLINK_TEST_DATADIR="~/data/blink-test-data" \
+cmake .. -DBLINK_TEST_DATADIR="${HOME}/data/blink-test-data" \
          -DUSE_CUDA=ON \
          -DUSE_OPENMP=OFF \
          -DCMAKE_CUDA_ARCHITECTURES="61-real" \
