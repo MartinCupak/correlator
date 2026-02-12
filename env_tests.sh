@@ -2,4 +2,5 @@
 #
 # these are environment variables to run tests
 
-export BLINK_TEST_DATADIR="~/data/blink-test-data"
+# must be full absolute path, will not work with ~/.../...
+export BLINK_TEST_DATADIR="${HOME}/data/blink-test-data"
