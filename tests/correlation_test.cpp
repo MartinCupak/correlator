@@ -179,7 +179,7 @@ void test_correlation_with_xgpu_in_mwax_data(){
 
 void test_correlation_with_eda2_data(){
     auto volt = Voltages::from_eda2_file(dataRootDir + "/eda2/channel_cont_20220118_41581_0_binary.bin", EDA2_OBSERVATION_INFO, 262144);
-    auto xcorr = cross_correlation_cpu(volt, 1);
+    auto xcorr = cross_correlation(volt, 1);
     // TODO improve this test
     std::cout << "'test_correlation_with_eda2_data' passed." << std::endl;
 }
@@ -204,7 +204,7 @@ void test_correlation_bad_input() {
     bool badParamCaught {false};
 
     try {
-        Visibilities vis = cross_correlation_cpu(volt, 0);
+        Visibilities vis = cross_correlation(volt, 0);
     } catch (std::invalid_argument& ex){
         badParamCaught = true;
     }
@@ -212,7 +212,7 @@ void test_correlation_bad_input() {
     badParamCaught = false;
 
     try {
-        Visibilities vis = cross_correlation_cpu(volt, 512);
+        Visibilities vis = cross_correlation(volt, 512);
     } catch (std::invalid_argument& ex) {
         badParamCaught = true;
     }
