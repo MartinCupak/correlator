@@ -263,13 +263,17 @@ int main(void){
     dataRootDir = std::string {pathToData};
 
     try{
+        auto start = std::chrono::high_resolution_clock::now();
         test_complex_conjugate_multiply();
         test_correlation_with_xgpu_data();
         // test_correlation_with_xgpu_in_mwax_data();
         test_correlation_with_offline_correlator_data();
         test_correlation_with_eda2_data();
         test_correlation_bad_input();
+        auto stop = std::chrono::high_resolution_clock::now();
+        std::cout << "Tests batch execution time (ms): " << std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count() << std::endl;
         #ifdef __GPU__
+        std::cout << "Verify CPU and GPU correlation gives the same result..." << std::endl;
         test_correlation_gpu();
         #endif
     } catch (std::exception& ex){
