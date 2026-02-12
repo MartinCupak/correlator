@@ -234,20 +234,20 @@ void test_correlation_bad_input() {
 #ifdef __GPU__
 #include "../src/correlation_gpu.hpp"
 void test_correlation_gpu(){
-    // auto start_all = std::chrono::high_resolution_clock::now();
+    auto start_all = std::chrono::high_resolution_clock::now();
     auto volt = Voltages::from_dat_file(dataRootDir + "/offline_correlator/1240826896_1240827191_ch146.dat", VCS_OBSERVATION_INFO, 100);
     auto xcorr_cpu = cross_correlation_cpu(volt, 32);
-    //auto start = std::chrono::high_resolution_clock::now();
+    auto start = std::chrono::high_resolution_clock::now();
     auto xcorr_gpu = cross_correlation_gpu(volt, 32);
     xcorr_gpu.to_cpu();
-    // auto stop = std::chrono::high_resolution_clock::now();
-    // std::cout << "corr execution time (ms): " << std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count() << std::endl;
+    auto stop = std::chrono::high_resolution_clock::now();
+    std::cout << "test_correlation_gpu(): correlation execution time (ms): " << std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count() << std::endl;
     // xcorr_gpu.to_fits_file("xcorr_gpu.fits");
     if (!complex_vectors_equal(xcorr_cpu.data(), xcorr_gpu.data(), xcorr_gpu.size())){
        throw TestFailed("test_corrrelation_gpu failed.");
     }
-    // auto stop_all = std::chrono::high_resolution_clock::now();
-    // std::cout << "all execution time (ms): " << std::chrono::duration_cast<std::chrono::milliseconds>(stop_all - start_all).count() << std::endl;
+    auto stop_all = std::chrono::high_resolution_clock::now();
+    std::cout << "test_correlation_gpu(): all execution time incl compare CPU/GPU results (ms): " << std::chrono::duration_cast<std::chrono::milliseconds>(stop_all - start_all).count() << std::endl;
     std::cout << "'test_correlation_gpu' passed." << std::endl;
 }
 #endif
