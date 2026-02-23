@@ -83,7 +83,7 @@ void test_correlation_with_xgpu_data(){
     // xGPU does not compute the time average and does not average channels, so we need to scale back
     // the correlator result.
     const float factor {static_cast<float>(obsInfo.timeResolution * voltages.nIntegrationSteps)};
-     for(size_t i {0}; i < xcorr.size(); i++){
+    for(size_t i {0}; i < xcorr.size(); i++){
         if(a[i] != (b[i] * factor)){
             std::cout << "Elements at position " << i << " differs: " << "a[i] = " << a[i] << ", b[i] = " << b[i] << std::endl;
             throw TestFailed("test_corrrelation_with_xgpu_data failed.");
