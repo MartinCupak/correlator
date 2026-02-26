@@ -45,22 +45,46 @@ void test_xgpu_correlation(){
     read_data_from_file(dataRootDir + "/xGPU/input_array_128_128_128_100.bin", inputData, insize);
     read_data_from_file(dataRootDir + "/xGPU/output_matrix_128_128_128_100.bin", outputData, outsize);
 
+    int xgpu_error = 0;
+#define DEFAULT_DEVICE_ID 0
+    int device = (int)DEFAULT_DEVICE_ID;
+
     // this one contains arrays / timing configuration etc
     XGPUInfo xgpu_info;
     // this one contains the data itself - need to be allocated!
     XGPUContext xgpu_context;
 
     // Populate XGPUInfo structure with compile-time parameters
+    // = Get telescope (antenna arrays) sizing & configuration info from xGPU library
+    // (function has void return, so can't error check)
     xgpuInfo(&xgpu_info);
+    std::cout << "test_xgpu_correlation(): xGPU configured for "
+            << "NSTATION = " << xgpu_info.nstation << ", "
+            << "NPOL = " << xgpu_info.npol << ", "
+            << "NTIME = " << xgpu_info.ntime << ", "
+            << "NTIME_PIPE = " << xgpu_info.ntimepipe << ", "
+            << "and output matrix order = " << xgpu_info.matrix_order
+            << std::endl;
+
+    // fill up other perams? or not needed?
+    xgpu_info.ntime = 100;
+    // ??? xgpu_info.ntimepipe = 100;
+    std::cout << "test_xgpu_correlation(): xGPU configuration updated as: "
+                << "NSTATION = " << xgpu_info.nstation << ", "
+                << "NPOL = " << xgpu_info.npol << ", "
+                << "NTIME = " << xgpu_info.ntime << ", "
+                << "NTIME_PIPE = " << xgpu_info.ntimepipe << ", "
+                << "and output matrix order = " << xgpu_info.matrix_order
+                << std::endl;
 
     // re-cast inputData to ComplexInput
 
     // call xgpuInit function of xGPU library
-    xgpu_error = xgpuInit(&xgpu_context, ctx->device);
+    xgpu_error = xgpuInit(&xgpu_context, device);
 
     // main xGPU call
     xgpu_error = xgpuCudaXengine(&xgpu_context, SYNCOP_SYNC_COMPUTE);
-    std::cout << "mwax_db2correlate2db_io_block: CudaXengine done, xgpu_error = " << xgpu_error << std::endl;
+    std::cout << "test_xgpu_correlation(): CudaXengine done, xgpu_error = " << xgpu_error << std::endl;
 
 
     ObservationInfo obsInfo {VCS_OBSERVATION_INFO};
@@ -103,6 +127,7 @@ int main(void){
     try{
         auto start = std::chrono::high_resolution_clock::now();
         //test_correlation_with_xgpu_data();
+        test_xgpu_correlation();
         auto stop = std::chrono::high_resolution_clock::now();
         std::cout << "Tests batch execution time (ms): " << std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count() << std::endl;
     } catch (std::exception& ex){
