@@ -99,7 +99,7 @@ void test_xgpu_correlation(){
     // ObservationInfo type struct needed to initialise Voltage class
     ObservationInfo obsInfo {VCS_OBSERVATION_INFO};
     obsInfo.nTimesteps = xgpu_info.ntime;
-    // timestepsPerRead=100 ... is that the same thing as obsInfo.nTimesteps?
+    // timestepsPerRead=100 ... is that the same thing as obsInfo.nTimesteps? - No, this is nIntegrationSteps
     // TODO: ask Cristian
     auto voltages = Voltages::from_memory((int8_t*) inputData, insize, obsInfo, 100);
     */
@@ -118,17 +118,20 @@ void test_xgpu_correlation(){
 /*  blink correlator test code
     ObservationInfo obsInfo {VCS_OBSERVATION_INFO};
     obsInfo.nTimesteps = 100; // xgpu processes 1/10th of the total 1hour VCS observation at a time.
-
+    # nIntegrationSteps
     auto voltages = Voltages::from_memory((int8_t*) inputData, insize, obsInfo, 100);
     auto xcorr = cross_correlation(voltages);
     xcorr.to_cpu();
 */
     const std::complex<float>* a {reinterpret_cast<std::complex<float>*>(outputData)};
-    /* const std::complex<float>* b {xcorr.data()};
+    // Complex* b {reinterpret_cast<Complex*>(xgpu_context.matrix_h)};
+    Complex* b = (Complex*)xgpu_context.matrix_h;
+    // const std::complex<float>* b {xcorr.data()};
     // xGPU does not compute the time average and does not average channels, so we need to scale back
     // the correlator result.
-    const float factor {static_cast<float>(obsInfo.timeResolution * voltages.nIntegrationSteps)};
-    for(size_t i {0}; i < xcorr.size(); i++){
+    const unsigned int nIntegrationSteps = xgpu_info.matrix_order;
+    const float factor {static_cast<float>(xgpu_info.ntime * nIntegrationSteps)};
+    for(size_t i {0}; i < outsize/sizeof(Complex); i++){
         if(a[i] != (b[i] * factor)){
             std::cout << "Elements at position " << i << " differs: " << "a[i] = " << a[i] << ", b[i] = " << b[i] << std::endl;
             throw TestFailed("test_corrrelation_with_xgpu_data failed.");
