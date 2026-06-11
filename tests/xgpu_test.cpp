@@ -94,7 +94,7 @@ void test_xgpu_correlation(){
     read_data_from_file(dataRootDir + "/xGPU/input_array_128_128_128_100.bin", inputData, insize);
     read_data_from_file(dataRootDir + "/xGPU/output_matrix_128_128_128_100.bin", outputData, outsize);
 
-    /*
+/*
     // get inputData with astrolib::Voltages class (nice C++)
     // ObservationInfo type struct needed to initialise Voltage class
     ObservationInfo obsInfo {VCS_OBSERVATION_INFO};
@@ -102,7 +102,7 @@ void test_xgpu_correlation(){
     // timestepsPerRead=100 ... is that the same thing as obsInfo.nTimesteps? - No, this is nIntegrationSteps
     // TODO: ask Cristian
     auto voltages = Voltages::from_memory((int8_t*) inputData, insize, obsInfo, 100);
-    */
+*/
     // re-cast inputData to ComplexInput
     //const std::complex<int8_t>* in {reinterpret_cast<std::complex<int8_t>*>(inputData)};
     std::cout << "size of inputData from file = " << insize << std::endl;
@@ -129,6 +129,7 @@ void test_xgpu_correlation(){
     // const std::complex<float>* b {xcorr.data()};
     // xGPU does not compute the time average and does not average channels, so we need to scale back
     // the correlator result.
+    // const float factor {static_cast<float>(obsInfo.timeResolution * voltages.nIntegrationSteps)};
     const unsigned int nIntegrationSteps = xgpu_info.matrix_order;
     const float factor {static_cast<float>(xgpu_info.ntime * nIntegrationSteps)};
     for(size_t i {0}; i < outsize/sizeof(Complex); i++){
@@ -137,7 +138,7 @@ void test_xgpu_correlation(){
             throw TestFailed("test_corrrelation_with_xgpu_data failed.");
         }
      }
-*/
+
     xgpuFree(&xgpu_context);
 
     delete[] inputData;
