@@ -10,5 +10,9 @@ cmake .. -DBLINK_TEST_DATADIR="${HOME}/data/blink-test-data" \
          -DMAKE_BUILD_TYPE=Release \
          -DCMAKE_CXX_FLAGS="-O3"
 
-make -j 8 VERBOSE=1
+make_cpus=$(nproc)
+# use 1 .. 8 cpus to compile, and never all - max n-1.
+(( make_cpus > 8 )) && make_cpus=8 || make_cpus=$((make_cpus - 1)) && (( make_cpus < 1 )) && make_cpus=1
+
+make -j ${make_cpus} VERBOSE=1
 sudo make install
