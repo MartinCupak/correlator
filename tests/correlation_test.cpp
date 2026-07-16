@@ -343,6 +343,8 @@ void test_correlation_with_xgpu_in_mwax_data_16T(){
     const unsigned int n_baselines {((n_antennas + 1) * n_antennas) / 2};
     const unsigned int n_polarisations {2u};
     const unsigned int n_fine_channels {6400u};
+
+    // MCu note: Blink is paralellising (warping) over time, not over signal paths like xGPU
     const unsigned int n_time_samples {52u};
     const unsigned int n_integrated_samples {52u};
     const unsigned int n_integration_intervals {n_time_samples / n_integrated_samples};
@@ -356,6 +358,11 @@ void test_correlation_with_xgpu_in_mwax_data_16T(){
     size_t n_visibilities {static_cast<size_t>(n_integration_intervals) * n_fine_channels * n_baselines * n_polarisations * n_polarisations};
 
     if(n_voltages * sizeof(std::complex<float>) != insize1){
+        std::cerr << "Input 1 size " << (n_voltages * sizeof(std::complex<float>))
+                  << " does not match the expected size " << insize1
+                  << " as computed by observation info." 
+                  << " ratio is " << insize1/(n_voltages * sizeof(std::complex<float>))
+                  << std::endl;
         std::cerr << "Input 1 size does not match the expected size as computed by observation info." << std::endl;
         throw TestFailed("Input 1 size does not match the expected size as computed by observation info.");
     }
@@ -434,6 +441,141 @@ void test_correlation_with_xgpu_in_mwax_data_16T(){
     delete[] reordered_ref;
     std::cout << "'test_correlation_with_xgpu_in_mwax_data' passed." << std::endl;
 }
+
+
+// Load the mwax_db2correlate2db dump files and convert them to astroio::Voltages class, 
+// then call cross_correlation_cpu(voltages) instead of the other 
+// function blink_cross_correlation_gpu(...)
+//
+// ---- this data -----
+// /voltdata/test_data/1428683776_1428683776_135_16T.sub
+//
+// HDR_SIZE 4096
+// POPULATED 1
+// OBS_ID 1428683776
+const auto OBS_ID {"1428683776"};
+// SUBOBS_ID 1428683776
+// MODE MWAX_CORRELATOR
+// UTC_START 2025-04-14-16:35:58
+// OBS_OFFSET 0
+// NBIT 8
+// NPOL 2
+const auto NPOL {2u};
+// NTIMESAMPLES 81920
+// NINPUTS 32
+const auto NINPUTS {32u};
+// NINPUTS_XGPU 32
+// APPLY_PATH_WEIGHTS 0
+// APPLY_PATH_DELAYS 0
+// APPLY_PATH_PHASE_OFFSETS 0
+// INT_TIME_MSEC 500
+const auto INT_TIME_MSEC {500u};
+// APPLY_COARSE_DERIPPLE 0
+// FSCRUNCH_FACTOR 50 ... Correlator frequency scrunch factor: number of ultrafine 200 Hz fine channels to average together
+const auto FSCRUNCH_FACTOR {50u};
+// APPLY_VIS_WEIGHTS 0
+// TRANSFER_SIZE 844103680
+// PROJ_ID C123
+// EXPOSURE_SECS 8
+// COARSE_CHANNEL 135
+const auto COARSE_CHANNEL {135u};
+// CORR_COARSE_CHANNEL 22
+const auto CORR_COARSE_CHANNEL {22u};
+// SECS_PER_SUBOBS 8
+// UNIXTIME 1744648558
+const time_t START_UNIXTIME {1744619758};
+// UNIXTIME_MSEC 0
+// FINE_CHAN_WIDTH_HZ 10000
+const auto FINE_CHAN_WIDTH_HZ {10000};
+// NFINE_CHAN 128 .... Correlator output number of fine channels
+const auto NFINE_CHAN {128u};
+// BANDWIDTH_HZ 1280000
+const auto BANDWIDTH_HZ {1280000u};
+// SAMPLE_RATE 1638400
+// MC_IP 0.0.0.0
+// MC_PORT 0
+// MC_SRC_IP 0.0.0.0
+// MWAX_U2S_VER 2.18-96
+// IDX_DELAY_TABLE 0+206592
+// MWAX_SUB_VER 2
+
+// the input dump test data is 2 files (one gulp per file) 
+// [time][channel][station][polarization][complexity]
+// Integration time is 500ms
+// Time resolution os 5ms 
+// 2 sub integrations per integration
+
+// in mwax_cbf, ctx->coarse_sample_rate initialised from ascii heater param HEADER_SAMPLE_RATE
+const auto COARSE_SAMPLE_RATE {1280000u};
+const auto MWAX_NUM_ULTRAFINE_CHANNELS {6400u};
+const double MWAX_COARSE_TIME_RESOLUTION {static_cast<double>(MWAX_NUM_ULTRAFINE_CHANNELS)/COARSE_SAMPLE_RATE};
+
+
+const ObservationInfo OBS_INFO_16T_TEST {
+    .nAntennas = (NINPUTS/2),
+    .nFrequencies = MWAX_NUM_ULTRAFINE_CHANNELS, // 128 or 6400?
+    .nPolarizations = NPOL,
+    .nTimesteps = static_cast<unsigned int>(static_cast<double>(INT_TIME_MSEC)/MWAX_COARSE_TIME_RESOLUTION),
+    .timeResolution = MWAX_COARSE_TIME_RESOLUTION, // 0.005 seconds
+    .frequencyResolution = (FINE_CHAN_WIDTH_HZ/1000000), // in MHz
+    .coarseChannelBandwidth = (BANDWIDTH_HZ/1000000), // in MHz
+    .startTime = START_UNIXTIME,
+    .coarseChannel = COARSE_CHANNEL,
+    .geo_long_deg = 116.67081,
+    .geo_lat_deg = -26.703319,
+    .coarse_channel_index = CORR_COARSE_CHANNEL,
+    .id = OBS_ID
+};
+
+void test_correlation_with_mwax_cbf_data_dump_16T(){
+    std::cout << "'test_correlation_with_mwax_cbf_data_dump_16T' started." << std::endl;
+    
+    // read test data dumped by mwax_db2correlate2db befora and after correlation
+    char *inputData1, *inputData2, *outputData;
+    size_t insize1, insize2, outsize;
+
+    std::cout << "Read inputData1 file " << dataRootDir + "/mwax/xgpu_input_000.00.bin" << std::endl;
+    read_data_from_file(dataRootDir + "/mwax/xgpu_input_008.00.bin", inputData1, insize1);
+    std::cout << "Read inputData2 file " << dataRootDir + "/mwax/xgpu_input_000.01.bin" << std::endl;
+    read_data_from_file(dataRootDir + "/mwax/xgpu_input_008.01.bin", inputData2, insize2);
+    std::cout << "Read outputData file " << dataRootDir + "/mwax/xgpu_output_000.bin" << std::endl;
+    read_data_from_file(dataRootDir + "/mwax/xgpu_output_008.bin", outputData, outsize);
+
+    // combine inputData1 and inputData2 into one buffer
+    size_t total_size = insize1 + insize2;
+    char* inputData = new char[total_size];
+    std::memcpy(inputData,         inputData1, insize1);  // copy first buffer
+    std::memcpy(inputData + insize1, inputData2, insize2);  // copy second buffer right after
+    delete[] inputData1;
+    delete[] inputData2;
+
+    ObservationInfo obsInfo {OBS_INFO_16T_TEST};
+    
+    // 100 = obsInfo.nTimesteps = (INT_TIME_MSEC/MWAX_COARSE_TIME_RESOLUTION)
+    auto voltages = Voltages::from_memory((int8_t*) inputData, total_size, obsInfo, 100);
+
+    #ifdef __GPU__
+    auto xcorr = cross_correlation(voltages);
+    xcorr.to_cpu();
+    #else
+    auto xcorr = cross_correlation_cpu(voltages);
+    #endif
+    const std::complex<float>* a {reinterpret_cast<std::complex<float>*>(outputData)};
+    const std::complex<float>* b {xcorr.data()};
+    // xGPU does not compute the time average and does not average channels, so we need to scale back
+    // the correlator result.
+    const float factor {static_cast<float>(obsInfo.timeResolution * voltages.nIntegrationSteps)};
+    for(size_t i {0}; i < xcorr.size(); i++){
+        if(a[i] != (b[i] * factor)){
+            std::cout << "Elements at position " << i << " differs: " << "a[i] = " << a[i] << ", b[i] = " << b[i] << std::endl;
+            throw TestFailed("test_correlation_with_mwax_cbf_data_dump_16T failed.");
+        }
+     }
+
+    delete[] inputData;
+    delete[] outputData;
+    std::cout << "'test_correlation_with_mwax_cbf_data_dump_16T' passed." << std::endl;
+};
 #endif
 
 
@@ -524,7 +666,8 @@ int main(void){
         test_complex_conjugate_multiply();
         test_correlation_with_xgpu_data();
         // test_correlation_with_xgpu_in_mwax_data();
-        test_correlation_with_xgpu_in_mwax_data_16T();
+        // test_correlation_with_xgpu_in_mwax_data_16T();
+        test_correlation_with_mwax_cbf_data_dump_16T();
         test_correlation_with_offline_correlator_data();
         test_correlation_with_eda2_data();
         test_correlation_bad_input();
