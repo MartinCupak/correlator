@@ -249,7 +249,7 @@ static inline int tri(int n){ return n*(n+1)/2; }
 // blink_buf: std::complex<float> interleaved, [baseline_blink][4 pols][channel]
 //            pols in Blink order: XX, XY, YX, YY
 void convert_xgpu_visibility_to_match_blink(
-    const std::complex<float>*     xgpu_buf,    // 29,491,200 bytes for 16 ant, 6400 ch
+    const float*         xgpu_buf,    // 29,491,200 bytes for 16 ant, 6400 ch
     std::complex<float>* blink_buf,   // 3,481,600 complex = 27,852,800 bytes
     int nant, int npol, int nfreq)
 {
@@ -396,7 +396,7 @@ void test_correlation_with_xgpu_in_mwax_data_16T(){
     
     const std::complex<float>* xGPUInputDump1_cpu = reinterpret_cast<std::complex<float>*>(inputData1);
     const std::complex<float>* xGPUInputDump2_cpu = reinterpret_cast<std::complex<float>*>(inputData2);
-    const std::complex<float>* reference_output {reinterpret_cast<std::complex<float>*>(outputData)};
+    const float* reference_output {reinterpret_cast<float*>(outputData)};
 
     std::complex<float> *visibilities_gpu, *visibilities_cpu, *voltages1_gpu, *voltages2_gpu;
     
