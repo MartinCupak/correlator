@@ -104,18 +104,19 @@ void test_correlation_with_xgpu_data(){
     std::cout << "'test_correlation_with_xgpu_data' passed." << std::endl;
 }
 
-
+// A function for muti dimensional data prism tarnsposition
+// input data for xGPU -> input data for Blink
 // Input:  [time][channel][station][polarization][complexity]
 // Output: [channel][station][polarization][time][complexity]
 //
 // unsigned int nTime ... number of times with padding, typically 52 
 // while we have nIntegrationSteps = 50 FFTs / spectra in a Gulp 
 
-std::complex<float>* transpose_xgpu_gulp_to_blink(std::complex<float>* xgpu_gulp, 
+MemoryBuffer<std::complex<float>> transpose_xgpu_gulp_to_blink(const std::complex<float>* xgpu_gulp, 
         unsigned int nFrequencies, unsigned int nAntennas, unsigned int nPolarizations,
         unsigned int nTime, unsigned int nTimePipe,
         unsigned int nTimesteps, unsigned int nIntegrationSteps) 
-//        unsigned int blocklsPerGulp, unsigned int fftsPerBlock)
+// may be later?       unsigned int blocklsPerGulp, unsigned int fftsPerBlock)
 {
     // TODO: nTimePipe for >192 arrays
     if(nTime != nTimePipe)
@@ -127,22 +128,16 @@ std::complex<float>* transpose_xgpu_gulp_to_blink(std::complex<float>* xgpu_gulp
     const size_t nSamplesInTimestep {nFrequencies * nAntennas * nPolarizations};
     const size_t bytesPerTimestep {nSamplesInTimestep * bytesPerComplexSample};
 
-    char* buffer {new char[bytesPerRead]};
-    // We are going to read 2 complex samples at a time, one for each polarization of an antenna.
-    // Each sample is made of 2 4bit data points, that need to be expanded to 8bit data points to be
-    // processed.
-    int8_t expanded[4]; // Temp variable for doing the 4-bit expansion
-    
     // variables used for output indexing
     const size_t samplesInPol {nIntegrationSteps};
     const size_t samplesInAntenna {samplesInPol * nPolarizations};
     const size_t samplesInFrequency {samplesInAntenna * nAntennas};
     const size_t samplesInTimeInterval {samplesInFrequency * nFrequencies};
 
-    const size_t blinkGulpSize {nSamplesInTimestep * nIntegrationSteps}
+    const size_t blinkGulpSize {nSamplesInTimestep * nIntegrationSteps};
     const size_t nIntegrationIntervals {nTimesteps / nIntegrationSteps};
 
-    MemoryBuffer<std::complex<float>> blink_gulp {blinkGulpSize * nIntegrationIntervals}
+    MemoryBuffer<std::complex<float>> blink_gulp {blinkGulpSize * nIntegrationIntervals};
     
     auto gulp = blink_gulp.data();
     memset(gulp, 0, sizeof(std::complex<float>) * nIntegrationIntervals * samplesInTimeInterval);
@@ -156,9 +151,6 @@ std::complex<float>* transpose_xgpu_gulp_to_blink(std::complex<float>* xgpu_gulp
         currentIntegratorStep = total_timesteps % nIntegrationSteps;
         for(size_t ch = 0; ch < nFrequencies; ch++){
             for(size_t a = 0; a < nAntennas; a++){
-                    
-                    uint16_t rawSamples = *reinterpret_cast<uint16_t*>(&buffer[sample_idx]);
-                    memcpy(expanded, eightBitLookup[rawSamples], 4);
                 // output layout is Time, Frequency, Antenna, Polarization, Integration Step
                 size_t outIndex = currentTimeInterval * samplesInTimeInterval + ch * samplesInFrequency + a * samplesInAntenna;
                 gulp[outIndex + currentIntegratorStep] = xgpu_gulp[sample_idx];
@@ -168,11 +160,11 @@ std::complex<float>* transpose_xgpu_gulp_to_blink(std::complex<float>* xgpu_gulp
         }
     }
 
-    return gulp;
+    return blink_gulp;
 }
 
 
-// MCu+Cld: 
+// MCu+Cld: Intermediate version. The one below is better.
 // Map xGPU REGISTER_TILE_ORDER → Blink triangular order
 // for validation purposes only
 void reorder_xgpu_to_blink(
@@ -257,7 +249,7 @@ static inline int tri(int n){ return n*(n+1)/2; }
 // blink_buf: std::complex<float> interleaved, [baseline_blink][4 pols][channel]
 //            pols in Blink order: XX, XY, YX, YY
 void convert_xgpu_visibility_to_match_blink(
-    const float*     xgpu_buf,    // 29,491,200 bytes for 16 ant, 6400 ch
+    const std::complex<float>*     xgpu_buf,    // 29,491,200 bytes for 16 ant, 6400 ch
     std::complex<float>* blink_buf,   // 3,481,600 complex = 27,852,800 bytes
     int nant, int npol, int nfreq)
 {
@@ -394,15 +386,16 @@ void test_correlation_with_xgpu_in_mwax_data_16T(){
     char *inputData1, *inputData2, *outputData;
     size_t insize1, insize2, outsize;
 
-    std::cout << "Read inputData1 file " << dataRootDir + "/mwax/xgpu_input_000.00.bin" << std::endl;
+    std::cout << "Read dumped input data files (2 gulps) and reference output visibility data file..." << std::endl;
     read_data_from_file(dataRootDir + "/mwax/xgpu_input_008.00.bin", inputData1, insize1);
-    std::cout << "Read inputData2 file " << dataRootDir + "/mwax/xgpu_input_000.01.bin" << std::endl;
+    std::cout << "Success, " << insize1 << "bytes of inputData1 file " << dataRootDir + "/mwax/xgpu_input_000.00.bin" << std::endl;
     read_data_from_file(dataRootDir + "/mwax/xgpu_input_008.01.bin", inputData2, insize2);
-    std::cout << "Read outputData file " << dataRootDir + "/mwax/xgpu_output_000.bin" << std::endl;
+    std::cout << "Success, " << insize2 << "bytes of inputData2 file " << dataRootDir + "/mwax/xgpu_input_000.01.bin" << std::endl;
     read_data_from_file(dataRootDir + "/mwax/xgpu_output_008.bin", outputData, outsize);
+    std::cout << "Success, " << outsize << "bytes of outputData file " << dataRootDir + "/mwax/xgpu_output_000.bin" << std::endl;
     
-    const std::complex<float>* voltages1_cpu = reinterpret_cast<std::complex<float>*>(inputData1);
-    const std::complex<float>* voltages2_cpu = reinterpret_cast<std::complex<float>*>(inputData2);
+    const std::complex<float>* xGPUInputDump1_cpu = reinterpret_cast<std::complex<float>*>(inputData1);
+    const std::complex<float>* xGPUInputDump2_cpu = reinterpret_cast<std::complex<float>*>(inputData2);
     const std::complex<float>* reference_output {reinterpret_cast<std::complex<float>*>(outputData)};
 
     std::complex<float> *visibilities_gpu, *visibilities_cpu, *voltages1_gpu, *voltages2_gpu;
@@ -412,37 +405,66 @@ void test_correlation_with_xgpu_in_mwax_data_16T(){
     const unsigned int n_polarisations {2u};
     const unsigned int n_fine_channels {6400u};
 
+    // These are for input xGPU data padding - required fro xGPU low level warping
+    const unsigned int n_time {52u};
+    const unsigned int n_time_pipe {52u};
+    
     // MCu note: Blink is paralellising (warping) over time, not over signal paths like xGPU
-    const unsigned int n_time_samples {52u};
-    const unsigned int n_integrated_samples {52u};
+    // As Blink warps differently, and can deal with just the actual data,
+    // no exttra 2 blank spectra (FFTs) needed
+    const unsigned int n_time_samples_per_gulp {50u};
+    const unsigned int n_integrated_samples_per_gulp {50u};
+
+    const unsigned int n_time_samples {n_time_samples_per_gulp};
+    const unsigned int n_integrated_samples {n_integrated_samples_per_gulp};
     const unsigned int n_integration_intervals {n_time_samples / n_integrated_samples};
+
     // the following definition will make sure that the output won't be scaled by the time
     // averaging factor.
     const double time_resolution {1.0 / n_integrated_samples};
+
     const unsigned int n_channels_to_avg {1u};
     const unsigned int reset_visibilities {1u};
-    
-    size_t n_voltages {static_cast<size_t>(n_integration_intervals) * n_fine_channels * n_antennas * n_polarisations * n_integrated_samples};
-    size_t n_visibilities {static_cast<size_t>(n_integration_intervals) * n_fine_channels * n_baselines * n_polarisations * n_polarisations};
 
-    if(n_voltages * sizeof(std::complex<float>) != insize1){
-        std::cerr << "Input 1 size " << (n_voltages * sizeof(std::complex<float>))
-                  << " does not match the expected size " << insize1
+    size_t n_voltages {static_cast<size_t>(n_integration_intervals) * n_fine_channels * n_antennas 
+        * n_polarisations * n_integrated_samples};
+    size_t n_visibilities {static_cast<size_t>(n_integrated_samples) * n_fine_channels 
+        * n_baselines * n_polarisations * n_polarisations};
+    size_t exp_vis_size {n_visibilities * sizeof(std::complex<float>)};
+
+    // MCu: Transpose xGPU input layout of input data dump for Blink
+    const MemoryBuffer<std::complex<float>> voltages1_cpu = transpose_xgpu_gulp_to_blink(xGPUInputDump1_cpu, 
+        n_fine_channels, n_antennas, n_polarisations,
+        n_time, n_time_pipe,
+        n_time_samples, n_integrated_samples);
+
+    const MemoryBuffer<std::complex<float>> voltages2_cpu = transpose_xgpu_gulp_to_blink(xGPUInputDump2_cpu, 
+        n_fine_channels, n_antennas, n_polarisations,
+        n_time, n_time_pipe,
+        n_time_samples, n_integrated_samples);
+
+    if(n_voltages != voltages1_cpu.size()){
+        std::cerr << "Input 1 dump file size in <std::complex<float> = " << sizeof(std::complex<float>) 
+                  << "bytes units " << (n_voltages)
+                  << " does not match the expected size " << voltages1_cpu.size()
                   << " as computed by observation info." 
-                  << " ratio is " << insize1/(n_voltages * sizeof(std::complex<float>))
+                  << " Ratio is " << (float)(voltages1_cpu.size())/(n_voltages)
                   << std::endl;
         std::cerr << "Input 1 size does not match the expected size as computed by observation info." << std::endl;
         throw TestFailed("Input 1 size does not match the expected size as computed by observation info.");
     }
-    size_t exp_vis_size {n_visibilities * sizeof(std::complex<float>)};
+    else{
+        std::cout << "Input 1 dump file size in <std::complex<float> = " << sizeof(std::complex<float>) 
+                  << "bytes units " << (n_voltages) << std::endl;
+    }
 
     // MCu+Cld: Reorder reference before comparing
     std::complex<float>* reordered_ref = new std::complex<float>[n_visibilities];
     
     // Build a minimal ctx-like struct for the conversion function
     // (or just replicate its logic inline — see below)
-    convert_xgpu_reg_to_blink(
-        reinterpret_cast<float*>(outputData),   // raw register tile
+    convert_xgpu_visibility_to_match_blink(
+        reference_output,   // raw register tile
         reordered_ref,
         n_antennas, n_polarisations, n_fine_channels);
 
@@ -458,8 +480,8 @@ void test_correlation_with_xgpu_in_mwax_data_16T(){
     gpuMalloc(&voltages2_gpu, n_voltages * sizeof(std::complex<float>));
     gpuMalloc(&visibilities_gpu, n_visibilities * sizeof(std::complex<float>));
 
-    gpuMemcpy(voltages1_gpu, voltages1_cpu, n_voltages * sizeof(std::complex<float>), gpuMemcpyHostToDevice);
-    gpuMemcpy(voltages2_gpu, voltages2_cpu, n_voltages * sizeof(std::complex<float>), gpuMemcpyHostToDevice);
+    gpuMemcpy(voltages1_gpu, voltages1_cpu.data(), n_voltages * sizeof(std::complex<float>), gpuMemcpyHostToDevice);
+    gpuMemcpy(voltages2_gpu, voltages2_cpu.data(), n_voltages * sizeof(std::complex<float>), gpuMemcpyHostToDevice);
 
     // Initialise output data in visibilities_gpu to zeros - see the last parameter reset_buffer="1"
     int return_value = blink_cross_correlation_gpu((float*)voltages1_gpu, (float*)visibilities_gpu, n_antennas,
@@ -597,6 +619,7 @@ const ObservationInfo OBS_INFO_16T_TEST {
     .id = OBS_ID
 };
 
+#if false
 void objective_test_correlation_with_mwax_cbf_data_dump_16T(){
     std::cout << "'test_correlation_with_mwax_cbf_data_dump_16T' started." << std::endl;
     
@@ -657,6 +680,7 @@ void objective_test_correlation_with_mwax_cbf_data_dump_16T(){
     delete[] outputData;
     std::cout << "'test_correlation_with_mwax_cbf_data_dump_16T' passed." << std::endl;
 };
+#endif
 #endif
 
 
@@ -747,8 +771,8 @@ int main(void){
         test_complex_conjugate_multiply();
         test_correlation_with_xgpu_data();
         // test_correlation_with_xgpu_in_mwax_data();
-        // test_correlation_with_xgpu_in_mwax_data_16T();
-        test_correlation_with_mwax_cbf_data_dump_16T();
+        test_correlation_with_xgpu_in_mwax_data_16T();
+        // test_correlation_with_mwax_cbf_data_dump_16T();
         test_correlation_with_offline_correlator_data();
         test_correlation_with_eda2_data();
         test_correlation_bad_input();
