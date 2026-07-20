@@ -4,6 +4,9 @@
 extern "C" {  
 #endif  
 
+// BLINK Data indexing ordering for input vectors const float* voltages is
+// [channel][station][polarization][time][complexity]
+
 int blink_cross_correlation_gpu(const float* voltages, float* visibilities, 
         unsigned int n_antennas, unsigned int n_polarisations,
         unsigned int n_fine_channels, unsigned int n_time_samples, double time_resolution,
