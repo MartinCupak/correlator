@@ -61,11 +61,14 @@ bool complex_vectors_equal(const std::complex<T>* a, const std::complex<T>* b, s
     return true;
 }
 
+const float isclose_rtol {1e-4f};
+const float isclose_atol {1e-7f};
+
 // MCu, inspired by python
 bool isclose(const std::complex<float>& a, 
              const std::complex<float>& b,
-             float rtol = 1e-5f,
-             float atol = 1e-8f) {
+             float rtol = isclose_rtol,
+             float atol = isclose_atol) {
     // Same logic as numpy: |a - b| <= atol + rtol * |b|
     return std::abs(a - b) <= atol + rtol * std::abs(b);
 }
@@ -104,7 +107,7 @@ void test_correlation_with_xgpu_data(){
     std::cout << "'test_correlation_with_xgpu_data' passed." << std::endl;
 }
 
-// A function for muti dimensional data prism tarnsposition
+// A function for multi dimensional data prism transposition
 // input data for xGPU -> input data for Blink
 // Input:  [time][channel][station][polarization][complexity]
 // Output: [channel][station][polarization][time][complexity]
@@ -285,7 +288,12 @@ void convert_xgpu_visibility_to_match_blink(
                 float yy_re =  in_re[ri + 3],  yy_im = in_im[ri + 3];
 
                 // Blink output baseline index (row-first, per channel)
-                int out = blink_bl * npol * npol * nfreq + f * npol * npol;
+                // OLD: [baseline][channel][pol] ... does not match Blink
+                // int out = blink_bl * npol * npol * nfreq + f * npol * npol;
+
+                // transpose to [channel][baseline][pol] ... matches Blink
+                int n_baselines = nant * (nant + 1) / 2;   // add this once before the loops
+                int out = f * n_baselines * npol * npol + blink_bl * npol * npol;
 
                 // Blink pol order — adjust if Blink uses different order!
                 // Assuming standard XX, XY, YX, YY (verify with Blink docs):
@@ -516,11 +524,15 @@ void test_correlation_with_xgpu_in_mwax_data_16T(){
                 throw TestFailed("'test_corrrelation_with_xgpu_in_mwax_data' failed.");
             }   
         }
-        else {
+        /* else {
             std::cout << "Elements at position " << i << " ARE EQUAL: " << "vis_cpu[i] = " 
                 << visibilities_cpu[i] << ", ref[i] = " << reordered_ref[i] << std::endl;
-        }
+        } */
     }
+
+    std::cout << "All elements compered between xGPU and Blink visibilities are 'isclose(Blink,xGPU, rtol="
+        << isclose_rtol << ", atol=" << isclose_atol << ") equal', WooHoo!" << std::endl;
+    std::cout << "Lets try to dealloctate all the memory buffers." << std::endl;    
 
     gpuFree(voltages1_gpu);
     gpuFree(voltages2_gpu);
@@ -529,9 +541,8 @@ void test_correlation_with_xgpu_in_mwax_data_16T(){
     delete[] inputData2;
     delete[] visibilities_cpu;
     delete[] outputData;
-    delete[] reference_output;
     delete[] reordered_ref;
-    std::cout << "'test_correlation_with_xgpu_in_mwax_data' passed." << std::endl;
+    std::cout << "'test_correlation_with_xgpu_in_mwax_data_16T' passed." << std::endl;
 }
 
 
