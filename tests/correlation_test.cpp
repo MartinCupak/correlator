@@ -61,6 +61,8 @@ bool complex_vectors_equal(const std::complex<T>* a, const std::complex<T>* b, s
     return true;
 }
 
+
+// MCu, inspired by python
 const float isclose_rtol {1e-4f};
 const float isclose_atol {1e-7f};
 
@@ -107,26 +109,31 @@ void test_correlation_with_xgpu_data(){
     std::cout << "'test_correlation_with_xgpu_data' passed." << std::endl;
 }
 
-// A function for multi dimensional data prism transposition
-// input data for xGPU -> input data for Blink
-// Input:  [time][channel][station][polarization][complexity]
-// Output: [channel][station][polarization][time][complexity]
-//
-// unsigned int nTime ... number of times with padding, typically 52 
-// while we have nIntegrationSteps = 50 FFTs / spectra in a Gulp 
 
+// MCu: A function for multi dimensional data prism transposition
+//      input data for xGPU -> input data for Blink
+//   Input:  [time][channel][station][polarization][complexity]
+//   Output: [channel][station][polarization][time][complexity]
+//
+//    unsigned int nTime ... number of times with padding for xGPU optimisation, typically 52,
+//    unsigned int nTimePipe ... number of times with padding for xGPU optimisation, typically 52
+//      TODO: extend the code to handle >192 tiles MWA configurations. 
+//            That requires two pipes, so nTime=56, nTimePipe=28                               
+//    we have nIntegrationSteps = 50 FFTs / spectra in a Gulp of actual data
+//
 MemoryBuffer<std::complex<float>> transpose_xgpu_gulp_to_blink(const std::complex<float>* xgpu_gulp, 
         unsigned int nFrequencies, unsigned int nAntennas, unsigned int nPolarizations,
         unsigned int nTime, unsigned int nTimePipe,
         unsigned int nTimesteps, unsigned int nIntegrationSteps) 
-// may be later?       unsigned int blocklsPerGulp, unsigned int fftsPerBlock)
+// MCu note: may be add later?      unsigned int blocklsPerGulp, unsigned int fftsPerBlock)
 {
-    // TODO: nTimePipe for >192 arrays
+    // TODO: handle 2 pipes configuration of input data, 
+    //       nTime=56; nTimePipe=28 for >192 arrays
     if(nTime != nTimePipe)
         throw std::invalid_argument {
-                "transpose_xgpu_gulp_to_blink(): nTime mus be equal to nTimePipe, >192 arrays config not yet implemented."};
+                "transpose_xgpu_gulp_to_blink(): nTime must be equal to nTimePipe, >192 arrays config not yet implemented."};
     
-    const unsigned int timestepsPerRead {50u}; // 1 gulp
+    const unsigned int timestepsPerRead {50u}; // 1 gulp, no padding for Blink
     const size_t bytesPerComplexSample {8}; // 32 + 32 bits float
     const size_t nSamplesInTimestep {nFrequencies * nAntennas * nPolarizations};
     const size_t bytesPerTimestep {nSamplesInTimestep * bytesPerComplexSample};
@@ -140,6 +147,7 @@ MemoryBuffer<std::complex<float>> transpose_xgpu_gulp_to_blink(const std::comple
     const size_t blinkGulpSize {nSamplesInTimestep * nIntegrationSteps};
     const size_t nIntegrationIntervals {nTimesteps / nIntegrationSteps};
 
+    // MCu note: local buffer, deleted on exit. result passed as reference 
     MemoryBuffer<std::complex<float>> blink_gulp {blinkGulpSize * nIntegrationIntervals};
     
     auto gulp = blink_gulp.data();
@@ -154,7 +162,8 @@ MemoryBuffer<std::complex<float>> transpose_xgpu_gulp_to_blink(const std::comple
         currentIntegratorStep = total_timesteps % nIntegrationSteps;
         for(size_t ch = 0; ch < nFrequencies; ch++){
             for(size_t a = 0; a < nAntennas; a++){
-                // output layout is Time, Frequency, Antenna, Polarization, Integration Step
+                // output layout is ([Time]) [Frequency][Antenna][Polarization][Integration Step]
+                // the output buffer type is std::complex<float>, which handles the [complexity]
                 size_t outIndex = currentTimeInterval * samplesInTimeInterval + ch * samplesInFrequency + a * samplesInAntenna;
                 gulp[outIndex + currentIntegratorStep] = xgpu_gulp[sample_idx];
                 gulp[outIndex + samplesInPol + currentIntegratorStep] = xgpu_gulp[sample_idx + 1];               
@@ -167,86 +176,13 @@ MemoryBuffer<std::complex<float>> transpose_xgpu_gulp_to_blink(const std::comple
 }
 
 
-// MCu+Cld: Intermediate version. The one below is better.
-// Map xGPU REGISTER_TILE_ORDER → Blink triangular order
-// for validation purposes only
-void reorder_xgpu_to_blink(
-    const std::complex<float>* xgpu,   // 576 entries per channel
-    std::complex<float>* blink_ref,    // 544 entries per channel
-    int nstation,                       // 16
-    int npol,                          // 2
-    int nfreq)                          // 6400
-{
-    int ntiles    = nstation / 2;                            // 8
-    int xgpu_per_chan = (ntiles+1)*ntiles/2 * npol*npol * 4; // 576
-    int blink_per_chan = (nstation+1)*nstation/2 * npol*npol; // 544
-
-    for (int f = 0; f < nfreq; f++) {
-        const std::complex<float>* xg = xgpu     + f * xgpu_per_chan;
-        std::complex<float>*       bl = blink_ref + f * blink_per_chan;
-
-        int tile = 0;
-        for (int tr = 0; tr < ntiles; tr++) {
-            for (int tc = 0; tc <= tr; tc++, tile++) {
-                // Each tile holds a 2×2 antenna block × npol² pol products
-                // xGPU stores them as [4 tile_entries × npol²]
-                // tile_entry layout: (0→upper-tri, 1→(2tr+1,2tc), 2→(2tr,2tc), 3→(2tr+1,2tc+1))
-                // (exact order from xgpu.h REGISTER_TILE_ORDER definition)
-
-                for (int pi = 0; pi < npol; pi++) {         // pol of row antenna
-                    for (int pj = 0; pj < npol; pj++) {     // pol of col antenna
-
-                        // The four antenna pairs within this tile:
-                        // entry 2 → (ant_row=2tr,   ant_col=2tc)
-                        // entry 1 → (ant_row=2tr+1, ant_col=2tc)
-                        // entry 0 → upper triangle (2tr, 2tc+1) — SKIP on diagonal
-                        // entry 3 → (ant_row=2tr+1, ant_col=2tc+1)
-
-                        int pol_offset = pi * npol + pj;
-
-                        // Pair (2tr, 2tc):
-                        {
-                            int ai = 2*tr, aj = 2*tc;
-                            int si = ai*npol+pi, sj = aj*npol+pj;
-                            int blink_idx = si*(si+1)/2 + sj;
-                            int xgpu_idx  = tile*npol*npol*4 + pol_offset*4 + 2;
-                            bl[blink_idx] = xg[xgpu_idx];
-                        }
-                        // Pair (2tr+1, 2tc):
-                        {
-                            int ai = 2*tr+1, aj = 2*tc;
-                            int si = ai*npol+pi, sj = aj*npol+pj;
-                            int blink_idx = si*(si+1)/2 + sj;
-                            int xgpu_idx  = tile*npol*npol*4 + pol_offset*4 + 1;
-                            bl[blink_idx] = xg[xgpu_idx];
-                        }
-                        // Pair (2tr+1, 2tc+1):
-                        {
-                            int ai = 2*tr+1, aj = 2*tc+1;
-                            int si = ai*npol+pi, sj = aj*npol+pj;
-                            int blink_idx = si*(si+1)/2 + sj;
-                            int xgpu_idx  = tile*npol*npol*4 + pol_offset*4 + 3;
-                            bl[blink_idx] = xg[xgpu_idx];
-                        }
-                        // Pair (2tr, 2tc+1): only valid off diagonal (tr > tc)
-                        if (tr > tc) {
-                            int ai = 2*tr, aj = 2*tc+1;
-                            int si = ai*npol+pi, sj = aj*npol+pj;
-                            int blink_idx = si*(si+1)/2 + sj;
-                            int xgpu_idx  = tile*npol*npol*4 + pol_offset*4 + 0;
-                            bl[blink_idx] = xg[xgpu_idx];
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// MCu+Cld: tri(n) = n*(n+1)/2
+// MCu+Cld: Claude Sonnet 4.6 High, lead by MCu iterative prompts
+// MCu: I love inlines too, a long way better than #MACROS 
+// tri(n) = n*(n+1)/2
 static inline int tri(int n){ return n*(n+1)/2; }
 
-// MCu+Cld: 
+
+// MCu+Cld: Claude Sonnet 4.6 High, lead by MCu iterative prompts
 // Convert xGPU register tile output → Blink triangular order
 // xgpu_buf: [real_block | imag_block], each block = n_freq × half_tri_size×16 floats
 // blink_buf: std::complex<float> interleaved, [baseline_blink][4 pols][channel]
@@ -279,6 +215,8 @@ void convert_xgpu_visibility_to_match_blink(
             for (int f = 0; f < nfreq; f++) {
                 int ri = reg_start + f * reg_delta;
 
+                // MCu: this is (c) Claude original comment, as all in this function,
+                // MCu: unless pre-faced by MCu:
                 // xGPU pol order at offsets 0,1,2,3: XX, XY, YX, YY
                 // MWAX conjugates and swaps XY/YX — Blink may not want conjugate
                 // Try WITHOUT conjugate first (verify against Blink convention):
@@ -305,6 +243,7 @@ void convert_xgpu_visibility_to_match_blink(
         }
     }
 }
+
 
 #ifdef __GPU__
 void test_correlation_with_xgpu_in_mwax_data(){
@@ -532,8 +471,7 @@ void test_correlation_with_xgpu_in_mwax_data_16T(){
 
     std::cout << "All elements compered between xGPU and Blink visibilities are 'isclose(Blink,xGPU, rtol="
         << isclose_rtol << ", atol=" << isclose_atol << ") equal', WooHoo!" << std::endl;
-    std::cout << "Lets try to dealloctate all the memory buffers." << std::endl;    
-
+    
     gpuFree(voltages1_gpu);
     gpuFree(voltages2_gpu);
     gpuFree(visibilities_gpu);
