@@ -321,9 +321,14 @@ void test_correlation_with_xgpu_in_mwax_data_128T(){
                   << "bytes units " << (n_voltages) << std::endl;
     }
 
+    std::cout << "allocate std::complex<float>* reordered_ref[" 
+        << n_visibilities << "]  bytes=" << sizeof(std::complex<float>)*n_visibilities << std::endl;
+
     // MCu+Cld: Reorder reference before comparing
     std::complex<float>* reordered_ref = new std::complex<float>[n_visibilities];
     
+    std::cout << "allocated std::complex<float>* reordered_ref[" << n_visibilities << "]" << std::endl;
+
     // Build a minimal ctx-like struct for the conversion function
     // (or just replicate its logic inline — see below)
     convert_xgpu_visibility_to_match_blink(
@@ -331,6 +336,8 @@ void test_correlation_with_xgpu_in_mwax_data_128T(){
         reordered_ref,
         n_antennas, n_polarisations, n_fine_channels);
     
+    std::cout << "convert_xgpu_visibility_to_match_blink() done" << std::endl;
+
     // no point to compare size when we have re-ordered the reference output to an array with the same allocation.
     // if(exp_vis_size != outsize){
     //     std::cerr << "Output size (" << outsize << ") does not match the expected size (" << exp_vis_size << ") as computed by observation info." << std::endl;
